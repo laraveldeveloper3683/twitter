@@ -1,57 +1,81 @@
 <?php
-	// include config and twitter api wrappe
-	require_once( 'config.php' );
-	require_once( 'TwitterAPIExchange.php' );
+require __DIR__ . '/vendor/autoload.php';
+//
+// if (php_sapi_name() != 'cli') {
+//     throw new Exception('This application must be run on the command line.');
+// }
 
-	// settings for twitter api connection
-	$settings = array(
-		'oauth_access_token' => TWITTER_ACCESS_TOKEN,
-		'oauth_access_token_secret' => TWITTER_ACCESS_TOKEN_SECRET,
-		'consumer_key' => TWITTER_CONSUMER_KEY,
-		'consumer_secret' => TWITTER_CONSUMER_SECRET
-	);
+/**
+ * Returns an authorized API client.
+ * @return Google_Client the authorized client object
+ */
+function getClient()
+{
+    $client = new Google_Client();
+    $client->setApplicationName('Google Sheets API PHP Quickstart');
+    $client->setScopes(Google_Service_Sheets::SPREADSHEETS_READONLY);
+    $client->setAuthConfig('credentials.json');
+    $client->setAccessType('offline');
+    $client->setPrompt('select_account consent');
 
-	// twitter api endpoint
-	$url = 'https://api.twitter.com/1.1/statuses/update.json';
+    // Load previously authorized token from a file, if it exists.
+    // The file token.json stores the user's access and refresh tokens, and is
+    // created automatically when the authorization flow completes for the first
+    // time.
+    $tokenPath = 'token.json';
+    if (file_exists($tokenPath)) {
+        $accessToken = json_decode(file_get_contents($tokenPath), true);
+        $client->setAccessToken($accessToken);
+    }
 
-  $media_url = 'https://upload.twitter.com/1.1/media/upload.json';
+    // If there is no previous token or it's expired.
+    if ($client->isAccessTokenExpired()) {
+        // Refresh the token if possible, else fetch a new one.
+        if ($client->getRefreshToken()) {
+            $client->fetchAccessTokenWithRefreshToken($client->getRefreshToken());
+        } else {
+            // Request authorization from the user.
+            $authUrl = $client->createAuthUrl();
+            printf("Open the following link in your browser:\n%s\n", $authUrl);
+            print 'Enter verification code: ';
+            $authCode = trim('4/0AY0e-g4TWFJGgtifUV45Qk-ez_eUOP7NdXIxaf0jWh_VM7Sz07ehYMqRFCxmF-y7kZTyZw');
 
-  $file = file_get_contents('test.jpg');
+            // Exchange authorization code for an access token.
+            $accessToken = $client->fetchAccessTokenWithAuthCode($authCode);
+            $client->setAccessToken($accessToken);
 
-  $image = base64_encode($file);
-  $requestmethod = "POST";
-    $apiData = array(
-    "media_data" => $image,
-    );
+            // Check to see if there was an error.
+            if (array_key_exists('error', $accessToken)) {
+                throw new Exception(join(', ', $accessToken));
+            }
+        }
+        // Save the token to a file.
+        if (!file_exists(dirname($tokenPath))) {
+            mkdir(dirname($tokenPath), 0700, true);
+        }
+        file_put_contents($tokenPath, json_encode($client->getAccessToken()));
+    }
+    return $client;
+}
 
 
-	// twitter api endpoint request type
-	$requestMethod = 'POST';
+// Get the API client and construct the service object.
+$client = getClient();
+$service = new Google_Service_Sheets($client);
 
-	// create new twitter for api communication
-	$twitter = new TwitterAPIExchange( $settings );
+// Prints the names and majors of students in a sample spreadsheet:
+// https://docs.google.com/spreadsheets/d/1CLcN7jnZ71jBEbxE8-i6aJmkUQZ4WDVJ0pJnT9_3Rxk/edit
+$spreadsheetId = '1CLcN7jnZ71jBEbxE8-i6aJmkUQZ4WDVJ0pJnT9_3Rxk';
+$range = 'A2:C8';
+$response = $service->spreadsheets_values->get($spreadsheetId, $range);
+$values = $response->getValues();
 
-	// make our api call to twiiter
-	$twitter->buildOauth( $media_url, $requestMethod );
-	$twitter->setPostfields( $apiData );
-	$response = $twitter->performRequest( true, array( CURLOPT_SSL_VERIFYHOST => 0, CURLOPT_SSL_VERIFYPEER => 0 ) );
+if (empty($values)) {
+    print "No data found.\n";
+} else {
 
-   $res = json_decode( $response);
-   $media_ids = $res->media_id_string;
-
-	// display response from twitter
-    // echo '<pre>';
-    print_r( $media_ids );
-
-    $datapost = array(
-      'media_ids' =>  $media_ids,
-      'status' => "this is machine test");
-
-      $twitter->buildOauth( $url, $requestMethod );
-      $twitter->setPostfields( $datapost );
-      $response1 = $twitter->performRequest( true, array( CURLOPT_SSL_VERIFYHOST => 0, CURLOPT_SSL_VERIFYPEER => 0 ) );
-
+    foreach ($values as $row) {
       echo "<pre>";
-      print_r(json_decode( $response1 , true));
-
-?>
+      print_r($row);
+    }
+}
